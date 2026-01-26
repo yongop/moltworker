@@ -1,8 +1,6 @@
 {
   "agents": {
     "defaults": {
-      "name": "Clawd",
-      "persona": "You are Clawd, a helpful personal AI assistant running in a Cloudflare Sandbox. You're friendly, capable, and always ready to help with tasks.",
       "workspace": "/root/clawd",
       "model": {
         "primary": "anthropic/claude-sonnet-4-20250514"
@@ -10,20 +8,11 @@
     }
   },
   "gateway": {
-    "bind": "0.0.0.0",
-    "port": 18789,
-    "auth": {
-      "mode": "none"
-    }
+    "port": 18789
   },
   "channels": {
     "webchat": {
       "enabled": true
-    }
-  },
-  "tools": {
-    "browser": {
-      "enabled": false
     }
   }
 }

@@ -20,13 +20,13 @@ else
 {
   "agents": {
     "defaults": {
+      "workspace": "/root/clawd",
       "model": {
         "primary": "anthropic/claude-sonnet-4-20250514"
       }
     }
   },
   "gateway": {
-    "bind": "0.0.0.0",
     "port": 18789
   }
 }
@@ -51,22 +51,15 @@ config.agents = config.agents || {};
 config.agents.defaults = config.agents.defaults || {};
 config.agents.defaults.model = config.agents.defaults.model || {};
 config.gateway = config.gateway || {};
-config.gateway.auth = config.gateway.auth || {};
 config.channels = config.channels || {};
 
-// Gateway configuration
-config.gateway.bind = '0.0.0.0';
+// Gateway configuration - just port, bind is not a valid option
 config.gateway.port = 18789;
 
-// Set gateway token if provided
+// Set gateway token if provided (use auth.token format)
 if (process.env.CLAWDBOT_GATEWAY_TOKEN) {
-    config.gateway.auth.mode = 'token';
+    config.gateway.auth = config.gateway.auth || {};
     config.gateway.auth.token = process.env.CLAWDBOT_GATEWAY_TOKEN;
-}
-
-// Anthropic API key - set in agents.defaults
-if (process.env.ANTHROPIC_API_KEY) {
-    config.agents.defaults.anthropicApiKey = process.env.ANTHROPIC_API_KEY;
 }
 
 // Telegram configuration
@@ -75,6 +68,7 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
     config.channels.telegram.botToken = process.env.TELEGRAM_BOT_TOKEN;
     config.channels.telegram.enabled = true;
     
+    // DM policy
     config.channels.telegram.dm = config.channels.telegram.dm || {};
     config.channels.telegram.dm.policy = process.env.TELEGRAM_DM_POLICY || 'pairing';
 }
@@ -97,11 +91,6 @@ if (process.env.SLACK_BOT_TOKEN && process.env.SLACK_APP_TOKEN) {
     config.channels.slack.enabled = true;
 }
 
-// OpenAI API key
-if (process.env.OPENAI_API_KEY) {
-    config.agents.defaults.openaiApiKey = process.env.OPENAI_API_KEY;
-}
-
 // Write updated config
 fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
 console.log('Configuration updated successfully');
@@ -111,5 +100,6 @@ EOFNODE
 echo "Starting Clawdbot Gateway..."
 echo "Gateway will be available on port 18789"
 
+# Set API keys as environment variables (clawdbot reads them from env)
 # Start the gateway (blocking)
 exec clawdbot gateway --port 18789 --verbose
