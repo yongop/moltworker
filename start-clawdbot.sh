@@ -58,6 +58,10 @@ config.channels = config.channels || {};
 config.gateway.port = 18789;
 config.gateway.mode = 'local';
 
+// Trust proxy headers from Cloudflare (10.x.x.x is the container network)
+// This allows clawdbot to see the real client IP and treat connections appropriately
+config.gateway.trustedProxies = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'];
+
 // Set gateway token if provided (use auth.token format)
 if (process.env.CLAWDBOT_GATEWAY_TOKEN) {
     config.gateway.auth = config.gateway.auth || {};
