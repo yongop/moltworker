@@ -26,8 +26,10 @@ import { getSandbox, Sandbox, type SandboxOptions } from '@cloudflare/sandbox';
 import type { AppEnv, ClawdbotEnv } from './types';
 import { CLAWDBOT_PORT } from './config';
 import { createAccessMiddleware } from './auth';
-import { ensureClawdbotGateway, syncToR2 } from './gateway';
+import { ensureClawdbotGateway, findExistingClawdbotProcess, syncToR2 } from './gateway';
 import { api, admin, debug, cdp } from './routes';
+import loadingPageHtml from './assets/loading.html';
+import logoImage from './assets/moltworker-logo-large.png';
 
 export { Sandbox };
 
@@ -84,6 +86,16 @@ app.get('/sandbox-health', (c) => {
   });
 });
 
+// Loading page assets
+app.get('/_loading/logo.png', (c) => {
+  return new Response(logoImage, {
+    headers: {
+      'Content-Type': 'image/png',
+      'Cache-Control': 'public, max-age=86400',
+    },
+  });
+});
+
 // Mount API routes (protected by Cloudflare Access)
 app.route('/api', api);
 
@@ -104,13 +116,35 @@ app.route('/debug', debug);
 // This allows programmatic access from external tools
 app.route('/cdp', cdp);
 
-// All other routes: start clawdbot and proxy
+// All other routes: check if gateway is ready, show loading page or proxy
 app.all('*', async (c) => {
   const sandbox = c.get('sandbox');
   const request = c.req.raw;
   const url = new URL(request.url);
 
   console.log('[PROXY] Handling request:', url.pathname);
+
+  // Check if gateway is already running
+  const existingProcess = await findExistingClawdbotProcess(sandbox);
+  const isGatewayReady = existingProcess !== null && existingProcess.status === 'running';
+  
+  // For browser requests (non-WebSocket, non-API), show loading page if gateway isn't ready
+  const isWebSocketRequest = request.headers.get('Upgrade')?.toLowerCase() === 'websocket';
+  const acceptsHtml = request.headers.get('Accept')?.includes('text/html');
+  
+  if (!isGatewayReady && !isWebSocketRequest && acceptsHtml) {
+    console.log('[PROXY] Gateway not ready, serving loading page');
+    
+    // Start the gateway in the background (don't await)
+    c.executionCtx.waitUntil(
+      ensureClawdbotGateway(sandbox, c.env).catch((err: Error) => {
+        console.error('[PROXY] Background gateway start failed:', err);
+      })
+    );
+    
+    // Return the loading page immediately
+    return c.html(loadingPageHtml);
+  }
 
   // Ensure clawdbot is running (this will wait for startup)
   try {
@@ -134,7 +168,7 @@ app.all('*', async (c) => {
   }
 
   // Proxy to Clawdbot
-  if (request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
+  if (isWebSocketRequest) {
     console.log('[WS] Proxying WebSocket connection to Clawdbot');
     console.log('[WS] URL:', request.url);
     console.log('[WS] Search params:', url.search);
