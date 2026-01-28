@@ -325,6 +325,30 @@ npm run deploy
 
 All endpoints require the `CDP_SECRET` header for authentication.
 
+## Built-in Skills
+
+The container includes pre-installed skills in `/root/clawd/skills/`:
+
+### cloudflare-browser
+
+Browser automation via the CDP shim. Requires `CDP_SECRET` and `WORKER_URL` to be set (see [Browser Automation](#optional-browser-automation-cdp) above).
+
+**Scripts:**
+- `screenshot.js` - Capture a screenshot of a URL
+- `video.js` - Create a video from multiple URLs
+- `cdp-client.js` - Reusable CDP client library
+
+**Usage:**
+```bash
+# Screenshot
+node /root/clawd/skills/cloudflare-browser/scripts/screenshot.js https://example.com output.png
+
+# Video from multiple URLs
+node /root/clawd/skills/cloudflare-browser/scripts/video.js "https://site1.com,https://site2.com" output.mp4 --scroll
+```
+
+See `skills/cloudflare-browser/SKILL.md` for full documentation.
+
 ## Optional: Cloudflare AI Gateway
 
 You can route API requests through [Cloudflare AI Gateway](https://developers.cloudflare.com/ai-gateway/) for caching, rate limiting, analytics, and cost tracking. AI Gateway supports multiple providers — configure your preferred provider in the gateway and use these env vars:
