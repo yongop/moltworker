@@ -20,10 +20,45 @@ WORKSPACE_DIR="/root/clawd"
 SKILLS_DIR="/root/clawd/skills"
 RCLONE_CONF="/root/.config/rclone/rclone.conf"
 LAST_SYNC_FILE="/tmp/.last-sync"
+AUTH_PROFILES_FILE="$CONFIG_DIR/agents/main/agent/auth-profiles.json"
+LEGACY_OAUTH_FILE="$CONFIG_DIR/credentials/oauth.json"
 
 echo "Config directory: $CONFIG_DIR"
 
 mkdir -p "$CONFIG_DIR"
+
+write_base64_json() {
+    local encoded="$1"
+    local dest="$2"
+    local label="$3"
+    local err_file
+    err_file=$(mktemp)
+
+    mkdir -p "$(dirname "$dest")"
+    if printf '%s' "$encoded" | base64 -d > "$dest" 2>"$err_file"; then
+        chmod 600 "$dest"
+        rm -f "$err_file"
+        echo "Imported $label -> $dest"
+    else
+        echo "ERROR: Failed to decode $label"
+        cat "$err_file" || true
+        rm -f "$err_file"
+        exit 1
+    fi
+}
+
+import_oauth_bootstrap() {
+    if [ -n "$OPENCLAW_OAUTH_JSON_B64" ]; then
+        write_base64_json "$OPENCLAW_OAUTH_JSON_B64" "$LEGACY_OAUTH_FILE" "OPENCLAW_OAUTH_JSON_B64"
+    fi
+    if [ -n "$OPENCLAW_AUTH_PROFILES_B64" ]; then
+        write_base64_json "$OPENCLAW_AUTH_PROFILES_B64" "$AUTH_PROFILES_FILE" "OPENCLAW_AUTH_PROFILES_B64"
+    fi
+}
+
+has_seeded_auth() {
+    [ -f "$AUTH_PROFILES_FILE" ] || [ -f "$LEGACY_OAUTH_FILE" ]
+}
 
 # ============================================================
 # RCLONE SETUP
@@ -99,6 +134,13 @@ else
 fi
 
 # ============================================================
+# OAUTH BOOTSTRAP IMPORT
+# ============================================================
+# Import OpenClaw auth state from secrets when provided.
+# This is primarily used for headless Codex OAuth bootstrapping.
+import_oauth_bootstrap
+
+# ============================================================
 # ONBOARD (only if no config exists yet)
 # ============================================================
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -114,6 +156,10 @@ if [ ! -f "$CONFIG_FILE" ]; then
         AUTH_ARGS="--auth-choice apiKey --anthropic-api-key $ANTHROPIC_API_KEY"
     elif [ -n "$OPENAI_API_KEY" ]; then
         AUTH_ARGS="--auth-choice openai-api-key --openai-api-key $OPENAI_API_KEY"
+    elif has_seeded_auth; then
+        AUTH_ARGS="--auth-choice skip"
+    else
+        AUTH_ARGS="--auth-choice skip"
     fi
 
     openclaw onboard --non-interactive --accept-risk \
@@ -169,6 +215,15 @@ if (process.env.OPENCLAW_DEV_MODE === 'true') {
     config.gateway.controlUi.allowInsecureAuth = true;
 }
 
+// Break-glass mode for stuck device-token states:
+// disable strict device-token checks in the Control UI.
+if (process.env.OPENCLAW_DISABLE_DEVICE_AUTH === 'true') {
+    config.gateway.controlUi = config.gateway.controlUi || {};
+    config.gateway.controlUi.allowInsecureAuth = true;
+    config.gateway.controlUi.dangerouslyDisableDeviceAuth = true;
+    console.warn('WARNING: OPENCLAW_DISABLE_DEVICE_AUTH=true (device auth disabled for Control UI)');
+}
+
 // Legacy AI Gateway base URL override:
 // ANTHROPIC_BASE_URL is picked up natively by the Anthropic SDK,
 // so we don't need to patch the provider config. Writing a provider
@@ -217,6 +272,14 @@ if (process.env.CF_AI_GATEWAY_MODEL) {
     } else {
         console.warn('CF_AI_GATEWAY_MODEL set but missing required config (account ID, gateway ID, or API key)');
     }
+}
+
+// Default model override (useful for Codex OAuth bootstrap).
+if (process.env.OPENCLAW_DEFAULT_MODEL) {
+    config.agents = config.agents || {};
+    config.agents.defaults = config.agents.defaults || {};
+    config.agents.defaults.model = { primary: process.env.OPENCLAW_DEFAULT_MODEL };
+    console.log('Default model override:', process.env.OPENCLAW_DEFAULT_MODEL);
 }
 
 // Telegram configuration

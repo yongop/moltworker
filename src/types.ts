@@ -19,6 +19,11 @@ export interface MoltbotEnv {
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_BASE_URL?: string;
   OPENAI_API_KEY?: string;
+  // OAuth bootstrap payloads (base64-encoded JSON)
+  OPENCLAW_AUTH_PROFILES_B64?: string; // contents of ~/.openclaw/agents/main/agent/auth-profiles.json
+  OPENCLAW_OAUTH_JSON_B64?: string; // contents of ~/.openclaw/credentials/oauth.json (legacy import path)
+  OPENCLAW_DEFAULT_MODEL?: string; // Override default model (e.g., openai-codex/gpt-5.3-codex)
+  OPENCLAW_DISABLE_DEVICE_AUTH?: string; // Break-glass: disable Control UI device-token auth checks
   MOLTBOT_GATEWAY_TOKEN?: string; // Gateway token (mapped to OPENCLAW_GATEWAY_TOKEN for container)
   DEV_MODE?: string; // Set to 'true' for local dev (skips CF Access auth + openclaw device pairing)
   E2E_TEST_MODE?: string; // Set to 'true' for E2E tests (skips CF Access auth but keeps device pairing)

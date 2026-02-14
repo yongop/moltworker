@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "moltbot-sandbox",
+  "name": "moltbot-sandbox002",
   "main": "src/index.ts",
   "compatibility_date": "2025-05-06",
   "compatibility_flags": ["nodejs_compat"],
@@ -70,9 +70,15 @@
   // Note: CF_ACCOUNT_ID should be set via `wrangler secret put CF_ACCOUNT_ID`
   // Secrets to configure via `wrangler secret put`:
   //
-  // AI Provider (at least one set required):
+  // AI configuration (at least one path required):
   // - ANTHROPIC_API_KEY: Direct Anthropic API key
   // - OPENAI_API_KEY: Direct OpenAI API key
+  // - OPENCLAW_AUTH_PROFILES_B64 or OPENCLAW_OAUTH_JSON_B64: OpenClaw OAuth bootstrap
+  // - OPENCLAW_DEFAULT_MODEL: Optional model override, e.g. "openai-codex/gpt-5.3-codex"
+  // - OPENCLAW_DISABLE_DEVICE_AUTH: Break-glass only. Disable Control UI device-token checks.
+  // - OpenClaw OAuth bootstrap (optional in setup flow, but valid as primary AI auth):
+  //   - OPENCLAW_AUTH_PROFILES_B64: Base64 of ~/.openclaw/agents/main/agent/auth-profiles.json
+  //   - OPENCLAW_OAUTH_JSON_B64: Base64 of ~/.openclaw/credentials/oauth.json (legacy import)
   // - Cloudflare AI Gateway (alternative to direct keys):
   //   - CLOUDFLARE_AI_GATEWAY_API_KEY: API key for requests through the gateway
   //   - CF_AI_GATEWAY_ACCOUNT_ID: Your Cloudflare account ID

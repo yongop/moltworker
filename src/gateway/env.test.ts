@@ -21,6 +21,20 @@ describe('buildEnvVars', () => {
     expect(result.OPENAI_API_KEY).toBe('sk-openai-key');
   });
 
+  it('passes OpenClaw OAuth bootstrap env vars to container', () => {
+    const env = createMockEnv({
+      OPENCLAW_AUTH_PROFILES_B64: 'eyJ2ZXJzaW9uIjoxLCJwcm9maWxlcyI6e319',
+      OPENCLAW_OAUTH_JSON_B64: 'eyJwcm92aWRlciI6Im9wZW5haS1jb2RleCJ9',
+      OPENCLAW_DEFAULT_MODEL: 'openai-codex/gpt-5.3-codex',
+      OPENCLAW_DISABLE_DEVICE_AUTH: 'true',
+    });
+    const result = buildEnvVars(env);
+    expect(result.OPENCLAW_AUTH_PROFILES_B64).toBe('eyJ2ZXJzaW9uIjoxLCJwcm9maWxlcyI6e319');
+    expect(result.OPENCLAW_OAUTH_JSON_B64).toBe('eyJwcm92aWRlciI6Im9wZW5haS1jb2RleCJ9');
+    expect(result.OPENCLAW_DEFAULT_MODEL).toBe('openai-codex/gpt-5.3-codex');
+    expect(result.OPENCLAW_DISABLE_DEVICE_AUTH).toBe('true');
+  });
+
   // Cloudflare AI Gateway (new native provider)
   it('passes Cloudflare AI Gateway env vars', () => {
     const env = createMockEnv({

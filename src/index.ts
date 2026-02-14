@@ -11,10 +11,13 @@
  * - Configuration via environment secrets
  *
  * Required secrets (set via `wrangler secret put`):
- * - ANTHROPIC_API_KEY: Your Anthropic API key
+ * - MOLTBOT_GATEWAY_TOKEN: Token to protect gateway access
+ * - One AI auth path:
+ *   - ANTHROPIC_API_KEY or OPENAI_API_KEY
+ *   - OR OPENCLAW_AUTH_PROFILES_B64 / OPENCLAW_OAUTH_JSON_B64
+ *   - OR CLOUDFLARE_AI_GATEWAY_API_KEY + CF_AI_GATEWAY_ACCOUNT_ID + CF_AI_GATEWAY_GATEWAY_ID
  *
  * Optional secrets:
- * - MOLTBOT_GATEWAY_TOKEN: Token to protect gateway access
  * - TELEGRAM_BOT_TOKEN: Telegram bot token
  * - DISCORD_BOT_TOKEN: Discord bot token
  * - SLACK_BOT_TOKEN + SLACK_APP_TOKEN: Slack tokens
@@ -81,10 +84,17 @@ function validateRequiredEnv(env: MoltbotEnv): string[] {
   const hasLegacyGateway = !!(env.AI_GATEWAY_API_KEY && env.AI_GATEWAY_BASE_URL);
   const hasAnthropicKey = !!env.ANTHROPIC_API_KEY;
   const hasOpenAIKey = !!env.OPENAI_API_KEY;
+  const hasOpenClawOAuthBootstrap = !!(env.OPENCLAW_AUTH_PROFILES_B64 || env.OPENCLAW_OAUTH_JSON_B64);
 
-  if (!hasCloudflareGateway && !hasLegacyGateway && !hasAnthropicKey && !hasOpenAIKey) {
+  if (
+    !hasCloudflareGateway &&
+    !hasLegacyGateway &&
+    !hasAnthropicKey &&
+    !hasOpenAIKey &&
+    !hasOpenClawOAuthBootstrap
+  ) {
     missing.push(
-      'ANTHROPIC_API_KEY, OPENAI_API_KEY, or CLOUDFLARE_AI_GATEWAY_API_KEY + CF_AI_GATEWAY_ACCOUNT_ID + CF_AI_GATEWAY_GATEWAY_ID',
+      'ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENCLAW_AUTH_PROFILES_B64/OPENCLAW_OAUTH_JSON_B64, or CLOUDFLARE_AI_GATEWAY_API_KEY + CF_AI_GATEWAY_ACCOUNT_ID + CF_AI_GATEWAY_GATEWAY_ID',
     );
   }
 

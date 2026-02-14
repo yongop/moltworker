@@ -62,10 +62,19 @@ _Cloudflare Sandboxes are available on the [Workers Paid plan](https://dash.clou
 # Install dependencies
 npm install
 
-# Set your API key (direct Anthropic access)
-npx wrangler secret put ANTHROPIC_API_KEY
+# Choose ONE AI auth method:
 
-# Or use Cloudflare AI Gateway instead (see "Optional: Cloudflare AI Gateway" below)
+# A) OpenClaw OAuth bootstrap (recommended for Codex OAuth)
+# npx wrangler secret put OPENCLAW_AUTH_PROFILES_B64
+# Optional model override:
+# echo "openai-codex/gpt-5.3-codex" | npx wrangler secret put OPENCLAW_DEFAULT_MODEL
+
+# B) Direct API key
+# npx wrangler secret put ANTHROPIC_API_KEY
+# or
+# npx wrangler secret put OPENAI_API_KEY
+
+# C) Cloudflare AI Gateway (see "Optional: Cloudflare AI Gateway" below)
 # npx wrangler secret put CLOUDFLARE_AI_GATEWAY_API_KEY
 # npx wrangler secret put CF_AI_GATEWAY_ACCOUNT_ID
 # npx wrangler secret put CF_AI_GATEWAY_GATEWAY_ID
@@ -75,6 +84,9 @@ npx wrangler secret put ANTHROPIC_API_KEY
 export MOLTBOT_GATEWAY_TOKEN=$(openssl rand -hex 32)
 echo "Your gateway token: $MOLTBOT_GATEWAY_TOKEN"
 echo "$MOLTBOT_GATEWAY_TOKEN" | npx wrangler secret put MOLTBOT_GATEWAY_TOKEN
+
+# Optional: force default model (recommended if using Codex OAuth bootstrap)
+# echo "openai-codex/gpt-5.3-codex" | npx wrangler secret put OPENCLAW_DEFAULT_MODEL
 
 # Deploy
 npm run deploy
@@ -95,6 +107,50 @@ Replace `your-worker` with your actual worker subdomain and `YOUR_GATEWAY_TOKEN`
 > 2. [Pair your device](#device-pairing) via the admin UI at `/_admin/`
 
 You'll also likely want to [enable R2 storage](#persistent-storage-r2) so your paired devices and conversation history persist across container restarts (optional but recommended).
+
+## OpenAI Codex OAuth (ChatGPT sign-in, headless-safe)
+
+`openclaw` supports Codex OAuth, and for server/headless deployments the docs recommend completing OAuth on a machine with a browser, then copying auth state to the gateway host.
+
+This repository supports that flow via secrets:
+
+- `OPENCLAW_AUTH_PROFILES_B64` = base64 of `~/.openclaw/agents/main/agent/auth-profiles.json`
+- `OPENCLAW_OAUTH_JSON_B64` = base64 of `~/.openclaw/credentials/oauth.json` (legacy import path)
+- `OPENCLAW_DEFAULT_MODEL` = `openai-codex/gpt-5.3-codex` (recommended)
+
+### 1. Complete OAuth once on your local machine
+
+```bash
+openclaw models auth login --provider openai-codex
+```
+
+### 2. Upload auth profiles as Wrangler secret
+
+macOS / Linux:
+
+```bash
+base64 -w0 ~/.openclaw/agents/main/agent/auth-profiles.json | npx wrangler secret put OPENCLAW_AUTH_PROFILES_B64
+echo "openai-codex/gpt-5.3-codex" | npx wrangler secret put OPENCLAW_DEFAULT_MODEL
+```
+
+Windows PowerShell:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("$HOME\.openclaw\agents\main\agent\auth-profiles.json")) | npx wrangler secret put OPENCLAW_AUTH_PROFILES_B64
+"openai-codex/gpt-5.3-codex" | npx wrangler secret put OPENCLAW_DEFAULT_MODEL
+```
+
+Optional legacy import:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("$HOME\.openclaw\credentials\oauth.json")) | npx wrangler secret put OPENCLAW_OAUTH_JSON_B64
+```
+
+### 3. Redeploy
+
+```bash
+npm run deploy
+```
 
 ## Setting Up the Admin UI
 
@@ -416,9 +472,13 @@ The previous `AI_GATEWAY_API_KEY` + `AI_GATEWAY_BASE_URL` approach is still supp
 | `CF_AI_GATEWAY_ACCOUNT_ID` | Yes* | Your Cloudflare account ID (used to construct the gateway URL) |
 | `CF_AI_GATEWAY_GATEWAY_ID` | Yes* | Your AI Gateway ID (used to construct the gateway URL) |
 | `CF_AI_GATEWAY_MODEL` | No | Override default model: `provider/model-id` (e.g. `workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast`). See [Choosing a Model](#choosing-a-model) |
-| `ANTHROPIC_API_KEY` | Yes* | Direct Anthropic API key (alternative to AI Gateway) |
+| `ANTHROPIC_API_KEY` | No* | Direct Anthropic API key (alternative to AI Gateway) |
 | `ANTHROPIC_BASE_URL` | No | Direct Anthropic API base URL |
-| `OPENAI_API_KEY` | No | OpenAI API key (alternative provider) |
+| `OPENAI_API_KEY` | No* | OpenAI API key (alternative provider) |
+| `OPENCLAW_DEFAULT_MODEL` | No | Override default model (e.g. `openai-codex/gpt-5.3-codex`) |
+| `OPENCLAW_AUTH_PROFILES_B64` | No | Base64 of `~/.openclaw/agents/main/agent/auth-profiles.json` for OAuth bootstrap |
+| `OPENCLAW_OAUTH_JSON_B64` | No | Base64 of `~/.openclaw/credentials/oauth.json` (legacy OAuth import path) |
+| `OPENCLAW_DISABLE_DEVICE_AUTH` | No | Break-glass only. Disables strict Control UI device-token auth checks |
 | `AI_GATEWAY_API_KEY` | No | Legacy AI Gateway API key (deprecated, use `CLOUDFLARE_AI_GATEWAY_API_KEY` instead) |
 | `AI_GATEWAY_BASE_URL` | No | Legacy AI Gateway endpoint URL (deprecated) |
 | `CF_ACCESS_TEAM_DOMAIN` | Yes* | Cloudflare Access team domain (required for admin UI) |
@@ -430,6 +490,8 @@ The previous `AI_GATEWAY_API_KEY` + `AI_GATEWAY_BASE_URL` approach is still supp
 | `R2_ACCESS_KEY_ID` | No | R2 access key for persistent storage |
 | `R2_SECRET_ACCESS_KEY` | No | R2 secret key for persistent storage |
 | `CF_ACCOUNT_ID` | No | Cloudflare account ID (required for R2 storage) |
+
+`*` AI config requires at least one path: OpenClaw OAuth bootstrap (`OPENCLAW_AUTH_PROFILES_B64` or `OPENCLAW_OAUTH_JSON_B64`), direct provider key (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`), or Cloudflare AI Gateway (`CLOUDFLARE_AI_GATEWAY_API_KEY` + `CF_AI_GATEWAY_ACCOUNT_ID` + `CF_AI_GATEWAY_GATEWAY_ID`).
 | `TELEGRAM_BOT_TOKEN` | No | Telegram bot token |
 | `TELEGRAM_DM_POLICY` | No | Telegram DM policy: `pairing` (default) or `open` |
 | `DISCORD_BOT_TOKEN` | No | Discord bot token |
@@ -466,6 +528,8 @@ OpenClaw in Cloudflare Sandbox uses multiple authentication layers:
 **Access denied on admin routes:** Ensure `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` are set, and that your Cloudflare Access application is configured correctly.
 
 **Devices not appearing in admin UI:** Device list commands take 10-15 seconds due to WebSocket connection overhead. Wait and refresh.
+
+**`disconnected (1008): unauthorized: device token mismatch`:** clear site data for your worker domain and pair again via `/_admin/`. If still blocked, set `OPENCLAW_DISABLE_DEVICE_AUTH=true` as a temporary break-glass workaround.
 
 **WebSocket issues in local development:** `wrangler dev` has known limitations with WebSocket proxying through the sandbox. HTTP requests work but WebSocket connections may fail. Deploy to Cloudflare for full functionality.
 

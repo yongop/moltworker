@@ -1,15 +1,27 @@
 # Copy this to .dev.vars and fill in your values
 # .dev.vars is gitignored and used by wrangler dev
 
-# AI Provider (at least one required)
+# AI configuration (at least one path required):
+# 1) OpenClaw OAuth bootstrap: OPENCLAW_AUTH_PROFILES_B64 or OPENCLAW_OAUTH_JSON_B64
+# 2) Direct provider key: ANTHROPIC_API_KEY or OPENAI_API_KEY
+# 3) Cloudflare AI Gateway: CLOUDFLARE_AI_GATEWAY_API_KEY + CF_AI_GATEWAY_ACCOUNT_ID + CF_AI_GATEWAY_GATEWAY_ID
 ANTHROPIC_API_KEY=sk-ant-...
 # OPENAI_API_KEY=sk-...
+# OPENCLAW_DEFAULT_MODEL=openai-codex/gpt-5.3-codex
 
 # Cloudflare AI Gateway (alternative to direct provider keys)
 # CLOUDFLARE_AI_GATEWAY_API_KEY=your-provider-api-key
 # CF_AI_GATEWAY_ACCOUNT_ID=your-account-id
 # CF_AI_GATEWAY_GATEWAY_ID=your-gateway-id
 # CF_AI_GATEWAY_MODEL=workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast
+
+# OpenAI Codex OAuth bootstrap (optional, for headless/server setup)
+# Base64 of ~/.openclaw/agents/main/agent/auth-profiles.json
+# OPENCLAW_AUTH_PROFILES_B64=
+# Base64 of ~/.openclaw/credentials/oauth.json (legacy import path)
+# OPENCLAW_OAUTH_JSON_B64=
+# Break-glass only: disable Control UI device-token checks
+# OPENCLAW_DISABLE_DEVICE_AUTH=true
 
 # Legacy AI Gateway (still supported)
 # AI_GATEWAY_API_KEY=your-key
