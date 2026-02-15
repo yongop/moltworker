@@ -85,6 +85,58 @@
   opacity: 0.8;
 }
 
+.critical-banner {
+  background-color: rgba(239, 68, 68, 0.15);
+  border: 1px solid var(--error-color);
+  border-radius: var(--border-radius);
+  padding: 1rem;
+  color: var(--error-color);
+}
+
+.critical-banner .warning-content strong {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.critical-banner .warning-content p {
+  margin: 0;
+  font-size: 0.875rem;
+  opacity: 0.9;
+}
+
+.critical-banner .missing-secrets {
+  margin-top: 0.5rem;
+  font-family: monospace;
+  font-size: 0.8rem;
+  opacity: 0.8;
+}
+
+.degraded-banner {
+  background-color: rgba(251, 191, 36, 0.18);
+  border: 1px solid var(--warning-color);
+  border-radius: var(--border-radius);
+  padding: 1rem;
+  color: var(--warning-color);
+}
+
+.degraded-banner .warning-content strong {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.degraded-banner .warning-content p {
+  margin: 0;
+  font-size: 0.875rem;
+  opacity: 0.9;
+}
+
+.degraded-banner .missing-secrets {
+  margin-top: 0.5rem;
+  font-family: monospace;
+  font-size: 0.8rem;
+  opacity: 0.8;
+}
+
 /* Success banner (R2 configured) */
 .success-banner {
   background-color: rgba(74, 222, 128, 0.15);

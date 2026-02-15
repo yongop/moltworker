@@ -270,19 +270,24 @@ To find your Account ID: Go to the [Cloudflare Dashboard](https://dash.cloudflar
 
 ### How It Works
 
-R2 storage uses a backup/restore approach for simplicity:
+R2 storage uses a backup/restore approach with fail-closed restore safety:
 
 **On container startup:**
-- If R2 is mounted and contains backup data, it's restored to the moltbot config directory
+- If local state already exists in the container, startup keeps local state and skips remote restore
+- If local state is empty, startup restores from R2 (`openclaw/`, `workspace/`, `skills/`) when data exists
+- If R2 checks fail due network/API errors, startup is blocked (fail-closed) instead of starting with unknown state
 - OpenClaw uses its default paths (no special configuration needed)
 
 **During operation:**
-- A cron job runs every 5 minutes to sync the moltbot config to R2
+- A change-detected sync loop checks every 30 seconds and uploads when files changed
+- A forced periodic sync runs every 5 minutes even if no changes were detected
+- On shutdown/redeploy (`SIGTERM`/`SIGINT`), a final sync runs before gateway exit
 - You can also trigger a manual backup from the admin UI at `/_admin/`
 
 **In the admin UI:**
 - When R2 is configured, you'll see "Last backup: [timestamp]"
 - Click "Backup Now" to trigger an immediate sync
+- Restore failures and degraded backup state are shown as warning banners
 
 Without R2 credentials, moltbot still works but uses ephemeral storage (data lost on container restart).
 

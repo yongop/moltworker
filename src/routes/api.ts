@@ -3,13 +3,47 @@ import type { AppEnv } from '../types';
 import { createAccessMiddleware } from '../auth';
 import {
   ensureMoltbotGateway,
-  findExistingMoltbotProcess,
+  findExistingMoltbotProcessWithRetry,
   syncToR2,
   waitForProcess,
 } from '../gateway';
 
 // CLI commands can take 10-15 seconds to complete due to WebSocket connection overhead
 const CLI_TIMEOUT_MS = 20000;
+const LAST_SYNC_FILE = '/tmp/.last-sync';
+const LAST_SYNC_ERROR_FILE = '/tmp/.last-sync-error';
+const RESTORE_STATUS_FILE = '/tmp/.restore-status.json';
+
+interface RestoreStatus {
+  state: string;
+  timestamp: string;
+  detail?: string;
+}
+
+async function readSandboxFile(sandbox: AppEnv['Variables']['sandbox'], path: string): Promise<string> {
+  const result = await sandbox.exec(`cat ${path} 2>/dev/null || true`);
+  return result.stdout?.trim() || '';
+}
+
+function parseRestoreStatus(raw: string): RestoreStatus | null {
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<RestoreStatus>;
+    if (typeof parsed.state !== 'string' || typeof parsed.timestamp !== 'string') {
+      return null;
+    }
+    return {
+      state: parsed.state,
+      timestamp: parsed.timestamp,
+      detail: typeof parsed.detail === 'string' ? parsed.detail : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * API routes
@@ -209,23 +243,42 @@ adminApi.get('/storage', async (c) => {
   if (!c.env.CF_ACCOUNT_ID) missing.push('CF_ACCOUNT_ID');
 
   let lastSync: string | null = null;
+  let lastSyncError: string | null = null;
+  let restore: RestoreStatus | null = null;
 
   if (hasCredentials) {
     try {
-      const result = await sandbox.exec('cat /tmp/.last-sync 2>/dev/null || echo ""');
-      const timestamp = result.stdout?.trim();
+      const [lastSyncRaw, lastSyncErrorRaw, restoreRaw] = await Promise.all([
+        readSandboxFile(sandbox, LAST_SYNC_FILE),
+        readSandboxFile(sandbox, LAST_SYNC_ERROR_FILE),
+        readSandboxFile(sandbox, RESTORE_STATUS_FILE),
+      ]);
+
+      const timestamp = lastSyncRaw.trim();
       if (timestamp && timestamp !== '') {
         lastSync = timestamp;
       }
+
+      const syncError = lastSyncErrorRaw.trim();
+      if (syncError && syncError !== '') {
+        lastSyncError = syncError;
+      }
+
+      restore = parseRestoreStatus(restoreRaw);
     } catch {
       // Ignore errors checking sync status
     }
   }
 
+  const backupDegraded = hasCredentials && (lastSyncError !== null || restore?.state === 'failed');
+
   return c.json({
     configured: hasCredentials,
     missing: missing.length > 0 ? missing : undefined,
     lastSync,
+    restore: restore ?? undefined,
+    lastSyncError,
+    backupDegraded,
     message: hasCredentials
       ? 'R2 storage is configured. Your data will persist across container restarts.'
       : 'R2 storage is not configured. Paired devices and conversations will be lost when the container restarts.',
@@ -263,7 +316,7 @@ adminApi.post('/gateway/restart', async (c) => {
 
   try {
     // Find and kill the existing gateway process
-    const existingProcess = await findExistingMoltbotProcess(sandbox);
+    const existingProcess = await findExistingMoltbotProcessWithRetry(sandbox, c.env);
 
     if (existingProcess) {
       console.log('Killing existing gateway process:', existingProcess.id);

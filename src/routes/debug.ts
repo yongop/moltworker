@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '../types';
-import { findExistingMoltbotProcess, waitForProcess } from '../gateway';
+import { findExistingMoltbotProcessWithRetry, waitForProcess } from '../gateway';
 
 /**
  * Debug routes for inspecting container state
@@ -171,7 +171,7 @@ debug.get('/logs', async (c) => {
         );
       }
     } else {
-      process = await findExistingMoltbotProcess(sandbox);
+      process = await findExistingMoltbotProcessWithRetry(sandbox, c.env);
       if (!process) {
         return c.json({
           status: 'no_process',

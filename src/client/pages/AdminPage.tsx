@@ -160,7 +160,16 @@ export default function AdminPage() {
       const result = await triggerSync();
       if (result.success) {
         // Update the storage status with new lastSync time
-        setStorageStatus((prev) => (prev ? { ...prev, lastSync: result.lastSync || null } : null));
+        setStorageStatus((prev) =>
+          prev
+            ? {
+                ...prev,
+                lastSync: result.lastSync || null,
+                lastSyncError: null,
+                backupDegraded: false,
+              }
+            : null,
+        );
         setError(null);
       } else {
         setError(result.error || 'Sync failed');
@@ -180,6 +189,33 @@ export default function AdminPage() {
           <button onClick={() => setError(null)} className="dismiss-btn">
             Dismiss
           </button>
+        </div>
+      )}
+
+      {storageStatus?.restore?.state === 'failed' && (
+        <div className="critical-banner">
+          <div className="warning-content">
+            <strong>자동 복구 실패로 기동 차단</strong>
+            <p>
+              R2 복구가 실패해 게이트웨이 시작이 차단되었습니다. 복구가 성공하면 자동으로 정상
+              기동됩니다.
+            </p>
+            {storageStatus.restore.detail && (
+              <p className="missing-secrets">Details: {storageStatus.restore.detail}</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {storageStatus?.configured && storageStatus.backupDegraded && (
+        <div className="degraded-banner">
+          <div className="warning-content">
+            <strong>백업 실패 재시도 중</strong>
+            <p>자동 백업이 일시적으로 실패했습니다. 백그라운드 루프가 자동 재시도합니다.</p>
+            {storageStatus.lastSyncError && (
+              <p className="missing-secrets">Last error: {storageStatus.lastSyncError}</p>
+            )}
+          </div>
         </div>
       )}
 

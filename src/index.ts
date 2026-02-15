@@ -24,13 +24,17 @@
  */
 
 import { Hono } from 'hono';
-import { getSandbox, Sandbox, type SandboxOptions } from '@cloudflare/sandbox';
 
 import type { AppEnv, MoltbotEnv } from './types';
 import { MOLTBOT_PORT } from './config';
 import { createAccessMiddleware } from './auth';
-import { ensureMoltbotGateway, findExistingMoltbotProcess } from './gateway';
+import {
+  ensureMoltbotGateway,
+  findExistingMoltbotProcessWithRetry,
+} from './gateway';
 import { publicRoutes, api, adminUi, debug, cdp } from './routes';
+import { createMoltbotSandbox, withSandboxResetRetry } from './sandbox';
+import { Sandbox } from './sandbox-alarm';
 import { redactSensitiveParams } from './utils/logging';
 import loadingPageHtml from './assets/loading.html';
 import configErrorHtml from './assets/config-error.html';
@@ -101,29 +105,6 @@ function validateRequiredEnv(env: MoltbotEnv): string[] {
   return missing;
 }
 
-/**
- * Build sandbox options based on environment configuration.
- *
- * SANDBOX_SLEEP_AFTER controls how long the container stays alive after inactivity:
- * - 'never' (default): Container stays alive indefinitely (recommended due to long cold starts)
- * - Duration string: e.g., '10m', '1h', '30s' - container sleeps after this period of inactivity
- *
- * To reduce costs at the expense of cold start latency, set SANDBOX_SLEEP_AFTER to a duration:
- *   npx wrangler secret put SANDBOX_SLEEP_AFTER
- *   # Enter: 10m (or 1h, 30m, etc.)
- */
-function buildSandboxOptions(env: MoltbotEnv): SandboxOptions {
-  const sleepAfter = env.SANDBOX_SLEEP_AFTER?.toLowerCase() || 'never';
-
-  // 'never' means keep the container alive indefinitely
-  if (sleepAfter === 'never') {
-    return { keepAlive: true };
-  }
-
-  // Otherwise, use the specified duration
-  return { sleepAfter };
-}
-
 // Main app
 const app = new Hono<AppEnv>();
 
@@ -144,8 +125,7 @@ app.use('*', async (c, next) => {
 
 // Middleware: Initialize sandbox for all requests
 app.use('*', async (c, next) => {
-  const options = buildSandboxOptions(c.env);
-  const sandbox = getSandbox(c.env.Sandbox, 'moltbot', options);
+  const sandbox = createMoltbotSandbox(c.env);
   c.set('sandbox', sandbox);
   await next();
 });
@@ -244,7 +224,7 @@ app.all('*', async (c) => {
   console.log('[PROXY] Handling request:', url.pathname);
 
   // Check if gateway is already running
-  const existingProcess = await findExistingMoltbotProcess(sandbox);
+  const existingProcess = await findExistingMoltbotProcessWithRetry(sandbox, c.env);
   const isGatewayReady = existingProcess !== null && existingProcess.status === 'running';
 
   // For browser requests (non-WebSocket, non-API), show loading page if gateway isn't ready
@@ -310,7 +290,15 @@ app.all('*', async (c) => {
     }
 
     // Get WebSocket connection to the container
-    const containerResponse = await sandbox.wsConnect(wsRequest, MOLTBOT_PORT);
+    const containerResponse = await withSandboxResetRetry(
+      c.env,
+      async (activeSandbox) => activeSandbox.wsConnect(wsRequest, MOLTBOT_PORT),
+      {
+        initialSandbox: sandbox,
+        attempts: 2,
+        operationName: 'wsConnect',
+      },
+    );
     console.log('[WS] wsConnect response status:', containerResponse.status);
 
     // Get the container-side WebSocket
@@ -439,7 +427,15 @@ app.all('*', async (c) => {
   }
 
   console.log('[HTTP] Proxying:', url.pathname + url.search);
-  const httpResponse = await sandbox.containerFetch(request, MOLTBOT_PORT);
+  const httpResponse = await withSandboxResetRetry(
+    c.env,
+    async (activeSandbox) => activeSandbox.containerFetch(request, MOLTBOT_PORT),
+    {
+      initialSandbox: sandbox,
+      attempts: 2,
+      operationName: 'containerFetch',
+    },
+  );
   console.log('[HTTP] Response status:', httpResponse.status);
 
   // Add debug header to verify worker handled the request

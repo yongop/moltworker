@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '../types';
 import { MOLTBOT_PORT } from '../config';
-import { findExistingMoltbotProcess } from '../gateway';
+import { findExistingMoltbotProcessWithRetry } from '../gateway';
 
 /**
  * Public routes - NO Cloudflare Access authentication required
@@ -35,7 +35,7 @@ publicRoutes.get('/api/status', async (c) => {
   const sandbox = c.get('sandbox');
 
   try {
-    const process = await findExistingMoltbotProcess(sandbox);
+    const process = await findExistingMoltbotProcessWithRetry(sandbox, c.env);
     if (!process) {
       return c.json({ ok: false, status: 'not_running' });
     }

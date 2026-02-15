@@ -105,13 +105,12 @@ describe('findExistingMoltbotProcess', () => {
     expect(result).toBeNull();
   });
 
-  it('handles listProcesses errors gracefully', async () => {
+  it('propagates listProcesses errors to caller', async () => {
     const sandbox = {
       listProcesses: vi.fn().mockRejectedValue(new Error('Network error')),
     } as unknown as Sandbox;
 
-    const result = await findExistingMoltbotProcess(sandbox);
-    expect(result).toBeNull();
+    await expect(findExistingMoltbotProcess(sandbox)).rejects.toThrow('Network error');
   });
 
   it('returns first matching gateway process', async () => {

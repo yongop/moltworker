@@ -117,6 +117,13 @@ export interface StorageStatusResponse {
   configured: boolean;
   missing?: string[];
   lastSync: string | null;
+  restore?: {
+    state: string;
+    timestamp: string;
+    detail?: string;
+  };
+  lastSyncError?: string | null;
+  backupDegraded?: boolean;
   message: string;
 }
 
