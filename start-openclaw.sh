@@ -24,6 +24,7 @@ LAST_SYNC_FILE="/tmp/.last-sync"
 LAST_SYNC_ERROR_FILE="/tmp/.last-sync-error"
 RESTORE_STATUS_FILE="/tmp/.restore-status.json"
 RESTORE_ERROR_FILE="/tmp/.restore-error.log"
+FORCE_RESTORE_MARKER="/tmp/.force-r2-restore"
 SYNC_LOG_FILE="/tmp/r2-sync.log"
 SYNC_MARKER_FILE="/tmp/.last-sync-marker"
 SYNC_LOCK_DIR="/tmp/.r2-sync-lock"
@@ -150,11 +151,14 @@ local_state_exists() {
         return 0
     fi
 
-    if dir_has_meaningful_files "$WORKSPACE_DIR" -not -path '*/node_modules/*' -not -path '*/.git/*'; then
-        return 0
-    fi
-
-    if dir_has_meaningful_files "$SKILLS_DIR"; then
+    # Do not treat baked-in workspace/skills files as runtime state.
+    # Only OpenClaw runtime artifacts under ~/.openclaw should gate restore.
+    if dir_has_meaningful_files "$CONFIG_DIR" \
+        -not -path "$AUTH_PROFILES_FILE" \
+        -not -path "$LEGACY_OAUTH_FILE" \
+        -not -name '*.lock' \
+        -not -name '*.log' \
+        -not -name '*.tmp'; then
         return 0
     fi
 
@@ -213,6 +217,13 @@ copy_r2_prefix_to_local() {
 }
 
 restore_from_r2() {
+    local forced_restore=0
+    if [ "${FORCE_R2_RESTORE:-}" = "true" ] || [ -f "$FORCE_RESTORE_MARKER" ]; then
+        forced_restore=1
+        rm -f "$FORCE_RESTORE_MARKER"
+        echo "Force restore requested: local data will be replaced from R2."
+    fi
+
     if ! r2_configured; then
         echo "R2 not configured, starting fresh"
         write_restore_status "not_configured" "R2 credentials not configured"
@@ -221,10 +232,17 @@ restore_from_r2() {
 
     setup_rclone
 
-    if local_state_exists; then
+    if [ "$forced_restore" -eq 0 ] && local_state_exists; then
         echo "Local state exists, skipping R2 restore."
         write_restore_status "skipped_local" "Local state exists, skipped remote restore"
         return 0
+    fi
+
+    if [ "$forced_restore" -eq 1 ]; then
+        echo "Clearing local state before forced restore..."
+        rm -rf "$CONFIG_DIR" "$WORKSPACE_DIR" "$SKILLS_DIR"
+        mkdir -p "$CONFIG_DIR" "$WORKSPACE_DIR" "$SKILLS_DIR"
+        write_restore_status "in_progress" "Forced restore requested, pulling all state from R2"
     fi
 
     echo "Checking R2 for existing backup..."
@@ -297,8 +315,16 @@ restore_from_r2() {
     esac
 
     if [ "$restored_any" -eq 1 ]; then
-        write_restore_status "restored" "R2 backup restored into empty local state"
+        if [ "$forced_restore" -eq 1 ]; then
+            write_restore_status "restored" "Forced full restore completed from R2"
+        else
+            write_restore_status "restored" "R2 backup restored into empty local state"
+        fi
     else
+        if [ "$forced_restore" -eq 1 ]; then
+            record_restore_failure "Forced restore requested but no backup data found in R2"
+            return 1
+        fi
         write_restore_status "fresh" "No R2 backup found"
     fi
 

@@ -166,6 +166,12 @@
   opacity: 0.8;
 }
 
+.success-banner .storage-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 /* Small button variant */
 .btn-sm {
   padding: 0.375rem 0.75rem;

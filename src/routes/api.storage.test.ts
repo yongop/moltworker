@@ -11,13 +11,14 @@ vi.mock('../auth', () => ({
 }));
 
 vi.mock('../gateway', () => ({
-  ensureMoltbotGateway: vi.fn(),
+  ensureMoltbotGateway: vi.fn().mockResolvedValue({}),
   findExistingMoltbotProcessWithRetry: vi.fn(),
   syncToR2: vi.fn(),
   waitForProcess: vi.fn(),
 }));
 
 import { api } from './api';
+import { ensureMoltbotGateway, findExistingMoltbotProcessWithRetry } from '../gateway';
 
 function createAppWithSandboxExec(execImpl: (command: string) => Promise<ReturnType<typeof createMockExecResult>>) {
   const app = new Hono<AppEnv>();
@@ -37,6 +38,8 @@ function createAppWithSandboxExec(execImpl: (command: string) => Promise<ReturnT
 describe('GET /api/admin/storage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(ensureMoltbotGateway).mockResolvedValue({} as never);
+    vi.mocked(findExistingMoltbotProcessWithRetry).mockResolvedValue(null);
   });
 
   it('parses restore status when restore metadata exists', async () => {
@@ -117,5 +120,42 @@ describe('GET /api/admin/storage', () => {
     expect(body.lastSync).toBeNull();
     expect(body.lastSyncError).toBeNull();
     expect(body.backupDegraded).toBe(false);
+  });
+
+  it('triggers forced restore and restart when R2 is configured', async () => {
+    const execMock = vi.fn(async () => createMockExecResult(''));
+    const killMock = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(findExistingMoltbotProcessWithRetry).mockResolvedValue({
+      id: 'proc-1',
+      kill: killMock,
+    } as never);
+
+    const app = createAppWithSandboxExec(execMock);
+    const response = await app.request(
+      '/api/admin/storage/restore',
+      { method: 'POST' },
+      createMockEnvWithR2(),
+    );
+    const body = (await response.json()) as Record<string, unknown>;
+
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(execMock).toHaveBeenCalledWith(expect.stringContaining('/tmp/.force-r2-restore'));
+    expect(killMock).toHaveBeenCalledTimes(1);
+    expect(ensureMoltbotGateway).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects forced restore when R2 is not configured', async () => {
+    const app = createAppWithSandboxExec(async () => createMockExecResult(''));
+    const response = await app.request(
+      '/api/admin/storage/restore',
+      { method: 'POST' },
+      createMockEnv(),
+    );
+    const body = (await response.json()) as Record<string, unknown>;
+
+    expect(response.status).toBe(400);
+    expect(body.success).toBe(false);
+    expect(body.error).toBe('R2 storage is not configured');
   });
 });

@@ -8,16 +8,82 @@ import {
   waitForProcess,
 } from '../gateway';
 
-// CLI commands can take 10-15 seconds to complete due to WebSocket connection overhead
-const CLI_TIMEOUT_MS = 20000;
+// CLI commands can take 10-15 seconds due to WebSocket overhead.
+// Keep generous headroom for cold starts/network jitter during pairing operations.
+const CLI_TIMEOUT_MS = 45000;
 const LAST_SYNC_FILE = '/tmp/.last-sync';
 const LAST_SYNC_ERROR_FILE = '/tmp/.last-sync-error';
 const RESTORE_STATUS_FILE = '/tmp/.restore-status.json';
+const FORCE_RESTORE_MARKER_FILE = '/tmp/.force-r2-restore';
 
 interface RestoreStatus {
   state: string;
   timestamp: string;
   detail?: string;
+}
+
+interface CliOutcome {
+  success: boolean;
+  status: string;
+  stdout: string;
+  stderr: string;
+  error?: string;
+}
+
+function shellEscape(value: string): string {
+  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+}
+
+function formatCliFailureMessage(
+  status: string,
+  exitCode: number | undefined,
+  stdout: string,
+  stderr: string,
+): string {
+  const trimmedStderr = stderr.trim();
+  if (trimmedStderr) return trimmedStderr;
+
+  const trimmedStdout = stdout.trim();
+  if (trimmedStdout) return trimmedStdout;
+
+  if (typeof exitCode === 'number') {
+    return `Command failed (status=${status}, exitCode=${exitCode})`;
+  }
+
+  return `Command failed (status=${status})`;
+}
+
+async function evaluateCliOutcome(
+  proc: {
+    status: string;
+    exitCode?: number;
+    getStatus?: () => Promise<string>;
+    getLogs: () => Promise<{ stdout?: string; stderr?: string }>;
+  },
+  successKeywords: string[],
+): Promise<CliOutcome> {
+  const logs = await proc.getLogs();
+  const stdout = logs.stdout || '';
+  const stderr = logs.stderr || '';
+  const status = proc.getStatus ? await proc.getStatus() : proc.status;
+  const combinedOutput = `${stdout}\n${stderr}`.toLowerCase();
+
+  const hasKeyword = successKeywords.some((keyword) =>
+    combinedOutput.includes(keyword.toLowerCase()),
+  );
+  const completedWithoutExitCode =
+    status === 'completed' && (proc.exitCode === undefined || proc.exitCode === null);
+  const success = proc.exitCode === 0 || completedWithoutExitCode || hasKeyword;
+
+  return {
+    success,
+    status,
+    stdout,
+    stderr,
+    error: success
+      ? undefined
+      : formatCliFailureMessage(status, proc.exitCode, stdout, stderr),
+  };
 }
 
 async function readSandboxFile(sandbox: AppEnv['Variables']['sandbox'], path: string): Promise<string> {
@@ -43,6 +109,25 @@ function parseRestoreStatus(raw: string): RestoreStatus | null {
   } catch {
     return null;
   }
+}
+
+function scheduleBackgroundTask(
+  c: { executionCtx?: { waitUntil?: (promise: Promise<unknown>) => unknown } },
+  task: Promise<unknown>,
+): void {
+  let waitUntil: ((promise: Promise<unknown>) => unknown) | undefined;
+  try {
+    waitUntil = c.executionCtx?.waitUntil;
+  } catch {
+    waitUntil = undefined;
+  }
+  if (typeof waitUntil === 'function') {
+    waitUntil(task);
+    return;
+  }
+
+  // Local/test runtimes may not provide waitUntil.
+  void task;
 }
 
 /**
@@ -129,24 +214,21 @@ adminApi.post('/devices/:requestId/approve', async (c) => {
     // Run OpenClaw CLI to approve the device
     const token = c.env.MOLTBOT_GATEWAY_TOKEN;
     const tokenArg = token ? ` --token ${token}` : '';
+    const escapedRequestId = shellEscape(requestId);
     const proc = await sandbox.startProcess(
-      `openclaw devices approve ${requestId} --url ws://localhost:18789${tokenArg}`,
+      `openclaw devices approve ${escapedRequestId} --url ws://localhost:18789${tokenArg}`,
     );
     await waitForProcess(proc, CLI_TIMEOUT_MS);
-
-    const logs = await proc.getLogs();
-    const stdout = logs.stdout || '';
-    const stderr = logs.stderr || '';
-
-    // Check for success indicators (case-insensitive, CLI outputs "Approved ...")
-    const success = stdout.toLowerCase().includes('approved') || proc.exitCode === 0;
+    const outcome = await evaluateCliOutcome(proc, ['approved']);
 
     return c.json({
-      success,
+      success: outcome.success,
       requestId,
-      message: success ? 'Device approved' : 'Approval may have failed',
-      stdout,
-      stderr,
+      message: outcome.success ? 'Device approved' : 'Approval may have failed',
+      stdout: outcome.stdout,
+      stderr: outcome.stderr,
+      error: outcome.error,
+      status: outcome.status,
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -195,18 +277,20 @@ adminApi.post('/devices/approve-all', async (c) => {
     for (const device of pending) {
       try {
         // eslint-disable-next-line no-await-in-loop -- sequential device approval required
+        const escapedRequestId = shellEscape(device.requestId);
         const approveProc = await sandbox.startProcess(
-          `openclaw devices approve ${device.requestId} --url ws://localhost:18789${tokenArg}`,
+          `openclaw devices approve ${escapedRequestId} --url ws://localhost:18789${tokenArg}`,
         );
         // eslint-disable-next-line no-await-in-loop
         await waitForProcess(approveProc, CLI_TIMEOUT_MS);
 
         // eslint-disable-next-line no-await-in-loop
-        const approveLogs = await approveProc.getLogs();
-        const success =
-          approveLogs.stdout?.toLowerCase().includes('approved') || approveProc.exitCode === 0;
-
-        results.push({ requestId: device.requestId, success });
+        const outcome = await evaluateCliOutcome(approveProc, ['approved']);
+        results.push({
+          requestId: device.requestId,
+          success: outcome.success,
+          error: outcome.error,
+        });
       } catch (err) {
         results.push({
           requestId: device.requestId,
@@ -310,6 +394,57 @@ adminApi.post('/storage/sync', async (c) => {
   }
 });
 
+// POST /api/admin/storage/restore - Force full restore from R2 and restart gateway
+adminApi.post('/storage/restore', async (c) => {
+  const sandbox = c.get('sandbox');
+
+  const hasCredentials = !!(
+    c.env.R2_ACCESS_KEY_ID &&
+    c.env.R2_SECRET_ACCESS_KEY &&
+    c.env.CF_ACCOUNT_ID
+  );
+
+  if (!hasCredentials) {
+    return c.json(
+      {
+        success: false,
+        error: 'R2 storage is not configured',
+      },
+      400,
+    );
+  }
+
+  try {
+    await sandbox.exec(`touch ${FORCE_RESTORE_MARKER_FILE}`);
+
+    const existingProcess = await findExistingMoltbotProcessWithRetry(sandbox, c.env);
+
+    if (existingProcess) {
+      console.log('Killing existing gateway process for forced restore:', existingProcess.id);
+      try {
+        await existingProcess.kill();
+      } catch (killErr) {
+        console.error('Error killing process during forced restore:', killErr);
+      }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+
+    const bootPromise = ensureMoltbotGateway(sandbox, c.env).catch((err) => {
+      console.error('Forced restore restart failed:', err);
+    });
+    scheduleBackgroundTask(c, bootPromise);
+
+    return c.json({
+      success: true,
+      message: 'Forced full restore requested. Gateway is restarting with R2 overwrite.',
+      previousProcessId: existingProcess?.id,
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return c.json({ success: false, error: errorMessage }, 500);
+  }
+});
+
 // POST /api/admin/gateway/restart - Kill the current gateway and start a new one
 adminApi.post('/gateway/restart', async (c) => {
   const sandbox = c.get('sandbox');
@@ -333,7 +468,7 @@ adminApi.post('/gateway/restart', async (c) => {
     const bootPromise = ensureMoltbotGateway(sandbox, c.env).catch((err) => {
       console.error('Gateway restart failed:', err);
     });
-    c.executionCtx.waitUntil(bootPromise);
+    scheduleBackgroundTask(c, bootPromise);
 
     return c.json({
       success: true,

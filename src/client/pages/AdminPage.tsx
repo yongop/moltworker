@@ -6,6 +6,7 @@ import {
   restartGateway,
   getStorageStatus,
   triggerSync,
+  triggerForceRestore,
   AuthError,
   type PendingDevice,
   type PairedDevice,
@@ -54,6 +55,7 @@ export default function AdminPage() {
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [restartInProgress, setRestartInProgress] = useState(false);
   const [syncInProgress, setSyncInProgress] = useState(false);
+  const [restoreInProgress, setRestoreInProgress] = useState(false);
 
   const fetchDevices = useCallback(async () => {
     try {
@@ -181,6 +183,32 @@ export default function AdminPage() {
     }
   };
 
+  const handleForceRestore = async () => {
+    if (
+      !confirm(
+        'R2 백업으로 로컬 상태를 강제로 전체 덮어쓰기하고 게이트웨이를 재시작합니다. 계속할까요?',
+      )
+    ) {
+      return;
+    }
+
+    setRestoreInProgress(true);
+    try {
+      const result = await triggerForceRestore();
+      if (result.success) {
+        setError(null);
+        alert('강제 전체 복구를 시작했습니다. 게이트웨이가 재시작됩니다.');
+        void fetchStorageStatus();
+      } else {
+        setError(result.error || 'Failed to trigger force restore');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to trigger force restore');
+    } finally {
+      setRestoreInProgress(false);
+    }
+  };
+
   return (
     <div className="devices-page">
       {error && (
@@ -253,14 +281,24 @@ export default function AdminPage() {
                 Last backup: {formatSyncTime(storageStatus.lastSync)}
               </span>
             </div>
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={handleSync}
-              disabled={syncInProgress}
-            >
-              {syncInProgress && <ButtonSpinner />}
-              {syncInProgress ? 'Syncing...' : 'Backup Now'}
-            </button>
+            <div className="storage-actions">
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={handleSync}
+                disabled={syncInProgress || restoreInProgress}
+              >
+                {syncInProgress && <ButtonSpinner />}
+                {syncInProgress ? 'Syncing...' : 'Backup Now'}
+              </button>
+              <button
+                className="btn btn-danger btn-sm"
+                onClick={handleForceRestore}
+                disabled={restoreInProgress || syncInProgress}
+              >
+                {restoreInProgress && <ButtonSpinner />}
+                {restoreInProgress ? 'Restoring...' : 'Force Restore'}
+              </button>
+            </div>
           </div>
         </div>
       )}

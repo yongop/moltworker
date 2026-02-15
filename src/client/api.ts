@@ -144,3 +144,16 @@ export async function triggerSync(): Promise<SyncResponse> {
     method: 'POST',
   });
 }
+
+export interface ForceRestoreResponse {
+  success: boolean;
+  message?: string;
+  previousProcessId?: string;
+  error?: string;
+}
+
+export async function triggerForceRestore(): Promise<ForceRestoreResponse> {
+  return apiRequest<ForceRestoreResponse>('/storage/restore', {
+    method: 'POST',
+  });
+}

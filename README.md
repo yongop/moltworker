@@ -287,6 +287,7 @@ R2 storage uses a backup/restore approach with fail-closed restore safety:
 **In the admin UI:**
 - When R2 is configured, you'll see "Last backup: [timestamp]"
 - Click "Backup Now" to trigger an immediate sync
+- Click "Force Restore" to overwrite local state from R2 and restart the gateway
 - Restore failures and degraded backup state are shown as warning banners
 
 Without R2 credentials, moltbot still works but uses ephemeral storage (data lost on container restart).
